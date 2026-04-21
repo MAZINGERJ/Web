@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pokédex</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" alt="Pokeball" class="logo-icon" />
+        <span>Pokédex</span>
+      </div>
+      <div class="search-wrap">
+        <input
+          type="text"
+          id="search-input"
+          class="search-input"
+          placeholder="Buscar Pokémon por nombre o número..."
+          autocomplete="off"
+        />
+        <button class="search-clear" id="search-clear" title="Limpiar">✕</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- Filters -->
+    <section class="filters">
+      <div class="filter-group">
+        <span class="filter-label">Tipo:</span>
+        <div class="type-pills" id="type-pills">
+          <button class="pill active" data-type="all">Todos</button>
+        </div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">Generación:</span>
+        <select id="gen-select" class="gen-select">
+          <option value="all">Todas</option>
+          <option value="1">Gen I (1–151)</option>
+          <option value="2">Gen II (152–251)</option>
+          <option value="3">Gen III (252–386)</option>
+          <option value="4">Gen IV (387–493)</option>
+          <option value="5">Gen V (494–649)</option>
+          <option value="6">Gen VI (650–721)</option>
+          <option value="7">Gen VII (722–809)</option>
+          <option value="8">Gen VIII (810–905)</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Stats bar -->
+    <div class="stats-bar">
+      <span id="results-count">Cargando Pokémon...</span>
+      <div class="sort-wrap">
+        <label for="sort-select">Ordenar:</label>
+        <select id="sort-select" class="gen-select">
+          <option value="id">Por número</option>
+          <option value="name">Por nombre</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Grid -->
+    <section class="grid" id="pokemon-grid"></section>
+
+    <!-- Loader -->
+    <div class="loader" id="loader">
+      <div class="spinner"></div>
+      <p>Cargando Pokémon...</p>
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="empty-state" hidden>
+      <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/great-ball.png" alt="No encontrado" />
+      <p>No se encontraron Pokémon.</p>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination">
+      <button id="prev-btn" class="page-btn" disabled>← Anterior</button>
+      <span id="page-info"></span>
+      <button id="next-btn" class="page-btn">Siguiente →</button>
+    </div>
+  </main>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal" id="modal">
+      <button class="modal-close" id="modal-close">✕</button>
+      <div class="modal-content" id="modal-content">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
