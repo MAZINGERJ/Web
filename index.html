@@ -3,99 +3,194 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pokédex</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="description" content="Pokédex interactiva con los 905 Pokémon de las generaciones I–VIII. Busca, filtra por tipo y generación, consulta estadísticas, habilidades y cadenas evolutivas." />
+  <title>Pokédex — Todos los Pokémon</title>
+  <!-- Pokéball favicon inline SVG -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23e63946' stroke='%23111' stroke-width='2'/><path d='M1 16h30' stroke='%23111' stroke-width='2.5'/><circle cx='16' cy='16' r='5' fill='%23fff' stroke='%23111' stroke-width='2'/><circle cx='16' cy='16' r='2.5' fill='%23ccc'/></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="header">
-    <div class="header-inner">
-      <div class="logo">
-        <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" alt="Pokeball" class="logo-icon" />
+
+  <!-- ── Header ── -->
+  <header class="header" role="banner">
+    <div class="container header-inner">
+      <a href="/" class="logo" aria-label="Pokédex — Inicio">
+        <svg class="logo-ball" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="15" fill="#e63946"/>
+          <path d="M1 16h30" stroke="#fff" stroke-width="2.5"/>
+          <circle cx="16" cy="16" r="5" fill="#fff"/>
+          <circle cx="16" cy="16" r="2.5" fill="#e63946"/>
+        </svg>
         <span>Pokédex</span>
-      </div>
-      <div class="search-wrap">
+      </a>
+
+      <div class="search-box" role="search">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
         <input
-          type="text"
+          type="search"
           id="search-input"
           class="search-input"
-          placeholder="Buscar Pokémon por nombre o número..."
+          placeholder="Nombre o número…"
           autocomplete="off"
+          spellcheck="false"
+          aria-label="Buscar Pokémon"
         />
-        <button class="search-clear" id="search-clear" title="Limpiar">✕</button>
+        <button class="search-clear" id="search-clear" aria-label="Limpiar búsqueda" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
       </div>
+
+      <button class="filter-toggle" id="filter-toggle" aria-expanded="false" aria-controls="filter-bar" aria-label="Mostrar u ocultar filtros">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>
+        <span>Filtros</span>
+      </button>
     </div>
   </header>
 
-  <main class="main">
-    <!-- Filters -->
-    <section class="filters">
-      <div class="filter-group">
-        <span class="filter-label">Tipo:</span>
-        <div class="type-pills" id="type-pills">
-          <button class="pill active" data-type="all">Todos</button>
+  <!-- ── Filter bar ── -->
+  <div class="filter-bar" id="filter-bar" aria-label="Filtros">
+    <div class="container filter-bar-inner">
+
+      <div class="filter-section">
+        <span class="filter-label" id="type-label">Tipo</span>
+        <div class="type-pills" id="type-pills" role="group" aria-labelledby="type-label">
+          <button class="pill pill--active" data-type="all">Todos</button>
+        </div>
+        <div class="type-loading" id="type-loading" hidden>
+          <span class="dots-loader"></span> Cargando tipos…
         </div>
       </div>
-      <div class="filter-group">
-        <span class="filter-label">Generación:</span>
-        <select id="gen-select" class="gen-select">
-          <option value="all">Todas</option>
-          <option value="1">Gen I (1–151)</option>
-          <option value="2">Gen II (152–251)</option>
-          <option value="3">Gen III (252–386)</option>
-          <option value="4">Gen IV (387–493)</option>
-          <option value="5">Gen V (494–649)</option>
-          <option value="6">Gen VI (650–721)</option>
-          <option value="7">Gen VII (722–809)</option>
-          <option value="8">Gen VIII (810–905)</option>
-        </select>
+
+      <div class="filter-row">
+        <div class="filter-field">
+          <label class="filter-label" for="gen-select">Generación</label>
+          <select id="gen-select" class="select-field">
+            <option value="all">Todas las generaciones</option>
+            <option value="1">Gen I · Kanto (1–151)</option>
+            <option value="2">Gen II · Johto (152–251)</option>
+            <option value="3">Gen III · Hoenn (252–386)</option>
+            <option value="4">Gen IV · Sinnoh (387–493)</option>
+            <option value="5">Gen V · Unova (494–649)</option>
+            <option value="6">Gen VI · Kalos (650–721)</option>
+            <option value="7">Gen VII · Alola (722–809)</option>
+            <option value="8">Gen VIII · Galar (810–905)</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="sort-select">Ordenar por</label>
+          <select id="sort-select" class="select-field">
+            <option value="id">Número de Pokédex</option>
+            <option value="name">Nombre A → Z</option>
+            <option value="name-desc">Nombre Z → A</option>
+          </select>
+        </div>
       </div>
-    </section>
 
-    <!-- Stats bar -->
-    <div class="stats-bar">
-      <span id="results-count">Cargando Pokémon...</span>
-      <div class="sort-wrap">
-        <label for="sort-select">Ordenar:</label>
-        <select id="sort-select" class="gen-select">
-          <option value="id">Por número</option>
-          <option value="name">Por nombre</option>
-        </select>
+    </div>
+  </div>
+
+  <!-- ── Main ── -->
+  <main class="main" id="main-content">
+    <div class="container">
+
+      <div class="toolbar">
+        <p class="results-count" id="results-count" aria-live="polite" aria-atomic="true">
+          Cargando Pokémon…
+        </p>
       </div>
-    </div>
 
-    <!-- Grid -->
-    <section class="grid" id="pokemon-grid"></section>
+      <!-- Grid -->
+      <section class="grid" id="pokemon-grid" aria-label="Lista de Pokémon"></section>
 
-    <!-- Loader -->
-    <div class="loader" id="loader">
-      <div class="spinner"></div>
-      <p>Cargando Pokémon...</p>
-    </div>
+      <!-- Global loader -->
+      <div class="loader-wrap" id="loader" role="status" aria-label="Cargando">
+        <div class="pokeball-spin" aria-hidden="true">
+          <svg viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="#e63946" stroke="#fff" stroke-width="3"/>
+            <line x1="2" y1="32" x2="62" y2="32" stroke="#fff" stroke-width="4"/>
+            <circle cx="32" cy="32" r="10" fill="#fff" stroke="#fff" stroke-width="2"/>
+            <circle cx="32" cy="32" r="5" fill="#e63946"/>
+          </svg>
+        </div>
+        <p>Cargando Pokémon…</p>
+      </div>
 
-    <!-- Empty state -->
-    <div class="empty-state" id="empty-state" hidden>
-      <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/great-ball.png" alt="No encontrado" />
-      <p>No se encontraron Pokémon.</p>
-    </div>
+      <!-- Empty state -->
+      <div class="empty-state" id="empty-state" hidden role="status">
+        <svg viewBox="0 0 120 120" class="empty-icon" aria-hidden="true">
+          <circle cx="60" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="3" opacity=".2"/>
+          <circle cx="60" cy="60" r="30" fill="none" stroke="currentColor" stroke-width="3" opacity=".2"/>
+          <line x1="10" y1="60" x2="110" y2="60" stroke="currentColor" stroke-width="3" opacity=".2"/>
+          <line x1="42" y1="38" x2="78" y2="82" stroke="currentColor" stroke-width="3" opacity=".3"/>
+          <line x1="78" y1="38" x2="42" y2="82" stroke="currentColor" stroke-width="3" opacity=".3"/>
+        </svg>
+        <strong>Sin resultados</strong>
+        <p>No se encontraron Pokémon con los filtros actuales.</p>
+        <button class="btn-reset" id="clear-filters">Limpiar filtros</button>
+      </div>
 
-    <!-- Pagination -->
-    <div class="pagination" id="pagination">
-      <button id="prev-btn" class="page-btn" disabled>← Anterior</button>
-      <span id="page-info"></span>
-      <button id="next-btn" class="page-btn">Siguiente →</button>
+      <!-- Pagination -->
+      <nav class="pagination" id="pagination" hidden aria-label="Páginas">
+        <button id="prev-btn" class="page-arrow" disabled aria-label="Página anterior">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="page-numbers" id="page-numbers" role="list"></div>
+        <button id="next-btn" class="page-arrow" aria-label="Página siguiente">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </nav>
+
     </div>
   </main>
 
-  <!-- Modal -->
-  <div class="modal-overlay" id="modal-overlay" hidden>
+  <!-- ── Footer ── -->
+  <footer class="footer" role="contentinfo">
+    <div class="container footer-inner">
+      <span>Pokédex · Datos de <a href="https://pokeapi.co" target="_blank" rel="noopener noreferrer">PokéAPI</a></span>
+      <span>Pokémon &amp; nombres © Nintendo / Game Freak</span>
+    </div>
+  </footer>
+
+  <!-- ── Modal ── -->
+  <div
+    class="modal-overlay"
+    id="modal-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="modal-pokemon-name"
+    hidden
+  >
     <div class="modal" id="modal">
-      <button class="modal-close" id="modal-close">✕</button>
-      <div class="modal-content" id="modal-content">
-        <div class="spinner"></div>
+
+      <div class="modal-topbar">
+        <button class="modal-nav-btn" id="modal-prev" aria-label="Pokémon anterior" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <button class="modal-close-btn" id="modal-close" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+        <button class="modal-nav-btn" id="modal-next" aria-label="Pokémon siguiente" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
       </div>
+
+      <div class="modal-scroll">
+        <div class="modal-body" id="modal-body">
+          <!-- filled dynamically -->
+          <div class="modal-skeleton" aria-hidden="true">
+            <div class="skel skel--hero"></div>
+            <div class="skel skel--line" style="width:60%;margin:.75rem auto 0"></div>
+            <div class="skel skel--line" style="width:40%;margin:.5rem auto 0"></div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 

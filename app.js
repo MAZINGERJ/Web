@@ -1,479 +1,714 @@
-/* ── Pokédex App — PokeAPI v2 ── */
+/* ══════════════════════════════════════════════════════════
+   Pokédex  ·  PokeAPI v2  ·  Vanilla JS
+   ══════════════════════════════════════════════════════════ */
+'use strict';
 
-const BASE = 'https://pokeapi.co/api/v2';
-const TOTAL = 905;     // gens 1-8
-const PER_PAGE = 40;
+/* ── Constants ──────────────────────────────────────────── */
+const API      = 'https://pokeapi.co/api/v2';
+const TOTAL    = 905;
+const PER_PAGE = 30;
 
-/* ── State ── */
-const state = {
-  all: [],          // { id, name } flat list after initial load
-  filtered: [],     // after search/type/gen filter
-  page: 1,
-  search: '',
-  type: 'all',
-  gen: 'all',
-  sort: 'id',
-  cache: new Map(),  // url → data
-};
+const ART   = id => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
+const SHINY = id => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/${id}.png`;
+const SPR   = id => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 
-/* ── Generation ranges ── */
 const GEN_RANGES = {
-  '1': [1, 151], '2': [152, 251], '3': [252, 386],
-  '4': [387, 493], '5': [494, 649], '6': [650, 721],
-  '7': [722, 809], '8': [810, 905],
+  '1':[1,151],'2':[152,251],'3':[252,386],'4':[387,493],
+  '5':[494,649],'6':[650,721],'7':[722,809],'8':[810,905],
 };
 
-/* ── DOM refs ── */
-const grid        = document.getElementById('pokemon-grid');
-const loader      = document.getElementById('loader');
-const emptyState  = document.getElementById('empty-state');
-const pagination  = document.getElementById('pagination');
-const prevBtn     = document.getElementById('prev-btn');
-const nextBtn     = document.getElementById('next-btn');
-const pageInfo    = document.getElementById('page-info');
-const resultsCount= document.getElementById('results-count');
-const searchInput = document.getElementById('search-input');
-const searchClear = document.getElementById('search-clear');
-const typePills   = document.getElementById('type-pills');
-const genSelect   = document.getElementById('gen-select');
-const sortSelect  = document.getElementById('sort-select');
-const modalOverlay= document.getElementById('modal-overlay');
-const modalContent= document.getElementById('modal-content');
-const modalClose  = document.getElementById('modal-close');
+const ALL_TYPES = [
+  'normal','fire','water','electric','grass','ice',
+  'fighting','poison','ground','flying','psychic','bug',
+  'rock','ghost','dragon','dark','steel','fairy',
+];
 
-/* ── Fetch helper with cache ── */
-async function apiFetch(url) {
-  if (state.cache.has(url)) return state.cache.get(url);
+const TYPE_CSS_COLOR = {
+  normal:'#9ca3af',  fire:'#f97316',    water:'#3b82f6',  electric:'#fbbf24',
+  grass:'#4ade80',   ice:'#67e8f9',     fighting:'#c2410c',poison:'#a855f7',
+  ground:'#d97706',  flying:'#818cf8',  psychic:'#f472b6', bug:'#84cc16',
+  rock:'#a8825a',    ghost:'#7c3aed',   dragon:'#6d28d9',  dark:'#4b5563',
+  steel:'#94a3b8',   fairy:'#f9a8d4',
+};
+
+const STAT_LABEL = {
+  hp:'HP', attack:'Ataque', defense:'Defensa',
+  'special-attack':'Sp.Atq', 'special-defense':'Sp.Def', speed:'Velocidad',
+};
+
+/* ── State ──────────────────────────────────────────────── */
+const S = {
+  all:          [],          /* {id,name}[] — 905 entries                  */
+  typeMap:      new Map(),   /* pokemonName → string[]                     */
+  cache:        new Map(),   /* url → parsed JSON                          */
+  typeMapReady: false,
+  typeMapPromise: null,
+
+  /* filters */
+  search: '', type: 'all', gen: 'all', sort: 'id',
+  page:   1,
+  filtered: [],             /* current filtered + sorted list              */
+
+  /* modal */
+  modalId:    null,
+  modalShiny: false,
+};
+
+/* ── DOM helpers ──────────────────────────────────────────── */
+const $  = id => document.getElementById(id);
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+};
+
+/* ── API fetch with cache ─────────────────────────────────── */
+async function api(url) {
+  if (S.cache.has(url)) return S.cache.get(url);
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} — ${url}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
   const data = await res.json();
-  state.cache.set(url, data);
+  S.cache.set(url, data);
   return data;
 }
 
-/* ── Type colour for stat bars ── */
-const TYPE_COLORS = {
-  fire:'#f97316', water:'#3b82f6', grass:'#22c55e', electric:'#eab308',
-  psychic:'#ec4899', ice:'#06b6d4', dragon:'#7c3aed', dark:'#374151',
-  fairy:'#f9a8d4', normal:'#9ca3af', fighting:'#b45309', flying:'#818cf8',
-  poison:'#a855f7', ground:'#d97706', rock:'#78716c', bug:'#84cc16',
-  ghost:'#6d28d9', steel:'#94a3b8',
-};
+/* ── Type index ───────────────────────────────────────────── */
+function ensureTypeMap() {
+  if (!S.typeMapPromise) S.typeMapPromise = buildTypeMap();
+  return S.typeMapPromise;
+}
 
-/* ──────────────────────────────────────────
-   INITIAL LOAD — fetch list of all 905 Pokémon
-   ────────────────────────────────────────── */
+async function buildTypeMap() {
+  for (let i = 0; i < ALL_TYPES.length; i += 6) {
+    const chunk = ALL_TYPES.slice(i, i + 6);
+    const results = await Promise.all(
+      chunk.map(t => api(`${API}/type/${t}`).catch(() => null))
+    );
+    results.forEach((d, j) => {
+      if (!d) return;
+      d.pokemon.forEach(({ pokemon: p }) => {
+        const list = S.typeMap.get(p.name) || [];
+        list.push(chunk[j]);
+        S.typeMap.set(p.name, list);
+      });
+    });
+  }
+  S.typeMapReady = true;
+}
+
+/* ── Init ─────────────────────────────────────────────────── */
 async function init() {
-  showLoader(true);
+  setLoader(true);
+  renderTypePills();
+
   try {
-    const data = await apiFetch(`${BASE}/pokemon?limit=${TOTAL}&offset=0`);
-    state.all = data.results.map((p, i) => ({ id: i + 1, name: p.name, url: p.url }));
-    await loadTypes();
+    const d = await api(`${API}/pokemon?limit=${TOTAL}&offset=0`);
+    S.all = d.results.map((p, i) => ({ id: i + 1, name: p.name }));
+    /* kick off type map in parallel; don't await */
+    ensureTypeMap();
     applyFilters();
-  } catch (err) {
-    console.error(err);
-    loader.querySelector('p').textContent = 'Error al cargar. Refresca la página.';
+  } catch (e) {
+    setLoader(false);
+    $('pokemon-grid').innerHTML =
+      '<p style="color:var(--text3);padding:3rem 0;text-align:center">No se pudo conectar con PokéAPI.<br>Comprueba tu conexión e intenta de nuevo.</p>';
   }
 }
 
-/* ── Load all types for pill filter ── */
-async function loadTypes() {
-  try {
-    const data = await apiFetch(`${BASE}/type`);
-    const relevant = data.results.filter(t => !['unknown','shadow'].includes(t.name));
-    relevant.forEach(t => {
-      const btn = document.createElement('button');
-      btn.className = 'pill';
-      btn.dataset.type = t.name;
-      btn.textContent = capitalize(t.name);
-      btn.addEventListener('click', () => selectType(t.name));
-      typePills.appendChild(btn);
-    });
-  } catch(e) { /* silently skip */ }
-}
-
-/* ──────────────────────────────────────────
-   FILTERING & SORTING
-   ────────────────────────────────────────── */
+/* ── Filtering & sorting ──────────────────────────────────── */
 function applyFilters() {
-  let list = [...state.all];
+  let list = S.all.slice();
 
   /* generation */
-  if (state.gen !== 'all') {
-    const [lo, hi] = GEN_RANGES[state.gen];
+  if (S.gen !== 'all') {
+    const [lo, hi] = GEN_RANGES[S.gen];
     list = list.filter(p => p.id >= lo && p.id <= hi);
   }
 
-  /* search */
-  if (state.search) {
-    const q = state.search.toLowerCase();
+  /* search (name or exact/padded number) */
+  if (S.search) {
+    const q = S.search.toLowerCase().trim();
     list = list.filter(p =>
-      p.name.includes(q) || String(p.id).padStart(4,'0').includes(q) || String(p.id) === q
+      p.name.includes(q) ||
+      String(p.id) === q ||
+      String(p.id).padStart(4, '0').includes(q)
     );
   }
 
-  /* type filter needs detail data — handled lazily in renderPage */
-  state.filtered = list;
-  state.page = 1;
-  renderPage();
-}
-
-function sortList(list) {
-  return [...list].sort((a, b) =>
-    state.sort === 'name' ? a.name.localeCompare(b.name) : a.id - b.id
-  );
-}
-
-/* ──────────────────────────────────────────
-   RENDER PAGE
-   ────────────────────────────────────────── */
-async function renderPage() {
-  showLoader(true);
-  grid.innerHTML = '';
-  emptyState.hidden = true;
-  pagination.hidden = true;
-
-  let list = sortList(state.filtered);
-
-  /* type filter requires fetching each pokemon — done on current page only */
-  if (state.type !== 'all') {
-    list = await filterByType(list);
+  /* type (defer to typeMap; re-apply when map is ready) */
+  if (S.type !== 'all' && S.typeMapReady) {
+    list = list.filter(p => (S.typeMap.get(p.name) || []).includes(S.type));
   }
 
-  if (list.length === 0) {
-    showLoader(false);
-    emptyState.hidden = false;
-    resultsCount.textContent = '0 Pokémon encontrados';
+  /* sort */
+  if (S.sort === 'name')      list.sort((a, b) => a.name.localeCompare(b.name));
+  else if (S.sort === 'name-desc') list.sort((a, b) => b.name.localeCompare(a.name));
+  else list.sort((a, b) => a.id - b.id);
+
+  S.filtered = list;
+  S.page = 1;
+  renderGrid();
+}
+
+/* ── Grid rendering ───────────────────────────────────────── */
+async function renderGrid() {
+  const grid  = $('pokemon-grid');
+  const empty = $('empty-state');
+  const pag   = $('pagination');
+  const rc    = $('results-count');
+
+  empty.hidden = true;
+  pag.hidden   = true;
+  setLoader(true);
+
+  if (S.filtered.length === 0) {
+    setLoader(false);
+    empty.hidden = false;
+    rc.textContent = '0 Pokémon encontrados';
     return;
   }
 
-  const totalPages = Math.ceil(list.length / PER_PAGE);
-  if (state.page > totalPages) state.page = totalPages;
+  const totalPages = Math.ceil(S.filtered.length / PER_PAGE);
+  S.page = Math.max(1, Math.min(S.page, totalPages));
 
-  const start = (state.page - 1) * PER_PAGE;
-  const pageItems = list.slice(start, start + PER_PAGE);
+  const start = (S.page - 1) * PER_PAGE;
+  const items = S.filtered.slice(start, start + PER_PAGE);
 
-  resultsCount.textContent = `${list.length} Pokémon encontrados`;
-  pageInfo.textContent = `Página ${state.page} de ${totalPages}`;
-  prevBtn.disabled = state.page === 1;
-  nextBtn.disabled = state.page === totalPages;
+  rc.textContent = `${S.filtered.length.toLocaleString('es')} Pokémon encontrados`;
 
-  /* fetch details for current page in parallel */
-  const details = await Promise.all(pageItems.map(p => fetchPokemon(p.id)));
+  /* show skeletons immediately */
+  grid.innerHTML = items.map(() => `
+    <div class="card card--skeleton" aria-hidden="true">
+      <div class="skel skel--img"></div>
+      <div class="skel skel--name" style="margin-top:.5rem"></div>
+      <div class="skel skel--badge"></div>
+    </div>`).join('');
 
-  details.forEach(poke => {
-    if (poke) grid.appendChild(buildCard(poke));
-  });
+  /* fetch types for this page (from typeMap or individual API call) */
+  const cardData = await Promise.all(items.map(p => resolveCardData(p.id, p.name)));
 
-  showLoader(false);
-  pagination.hidden = false;
+  setLoader(false);
+  grid.innerHTML = '';
+  cardData.forEach(d => { if (d) grid.appendChild(buildCard(d)); });
 
-  /* scroll to top of grid smoothly */
-  grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  /* pagination */
+  renderPagination(totalPages);
+  pag.hidden = totalPages <= 1;
 }
 
-/* filter by type — fetches details for the whole filtered list, paginated internally */
-async function filterByType(list) {
+async function resolveCardData(id, name) {
+  /* fast path: type already in map */
+  let types = S.typeMap.get(name);
+  if (types && types.length) return { id, name, types };
+
+  /* slow path: fetch individual pokemon */
   try {
-    const typeData = await apiFetch(`${BASE}/type/${state.type}`);
-    const names = new Set(typeData.pokemon.map(e => e.pokemon.name));
-    return list.filter(p => names.has(p.name));
-  } catch(e) {
-    return list;
+    const d = await api(`${API}/pokemon/${id}`);
+    types = d.types.map(t => t.type.name);
+    S.typeMap.set(name, types);
+    return { id, name, types };
+  } catch {
+    return { id, name, types: ['normal'] };
   }
 }
 
-/* ──────────────────────────────────────────
-   POKEMON CARD
-   ────────────────────────────────────────── */
-function buildCard(poke) {
-  const card = document.createElement('div');
-  card.className = 'card';
+function buildCard({ id, name, types }) {
+  const primary = types[0] || 'normal';
+  const color   = TYPE_CSS_COLOR[primary] || '#666';
 
-  const mainType = poke.types[0].type.name;
-  card.style.color = TYPE_COLORS[mainType] ?? '#fff';
+  const card = el('article', 'card');
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  card.setAttribute('aria-label', `Ver ${cap(name)}, Pokémon #${id}`);
+  card.style.setProperty('--card-color', color);
 
-  const typeBadges = poke.types
-    .map(t => `<span class="type-badge type-${t.type.name}">${t.type.name}</span>`)
-    .join('');
-
-  const img = poke.sprites.other['official-artwork']?.front_default
-    || poke.sprites.front_default
-    || '';
+  const badges = types.map(t => `<span class="badge badge--${t}">${t}</span>`).join('');
 
   card.innerHTML = `
-    <span class="card-num">#${String(poke.id).padStart(4,'0')}</span>
-    <img class="card-img" src="${img}" alt="${poke.name}" loading="lazy" />
-    <span class="card-name">${poke.name}</span>
-    <div class="card-types">${typeBadges}</div>
-  `;
+    <span class="card-num">#${pad(id)}</span>
+    <div class="card-img-wrap">
+      <img class="card-img" src="${ART(id)}" alt="${cap(name)}"
+           loading="lazy" width="100" height="100"
+           onerror="this.src='${SPR(id)}'" />
+    </div>
+    <p class="card-name">${cap(name)}</p>
+    <div class="card-types">${badges}</div>`;
 
-  card.addEventListener('click', () => openModal(poke.id));
+  const open = () => openModal(id);
+  card.addEventListener('click', open);
+  card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
   return card;
 }
 
-/* ──────────────────────────────────────────
-   FETCH HELPERS
-   ────────────────────────────────────────── */
-async function fetchPokemon(id) {
-  try { return await apiFetch(`${BASE}/pokemon/${id}`); }
-  catch(e) { return null; }
-}
+/* ── Pagination ───────────────────────────────────────────── */
+function renderPagination(total) {
+  const prev = $('prev-btn');
+  const next = $('next-btn');
+  const pn   = $('page-numbers');
 
-async function fetchSpecies(id) {
-  try { return await apiFetch(`${BASE}/pokemon-species/${id}`); }
-  catch(e) { return null; }
-}
+  prev.disabled = S.page === 1;
+  next.disabled = S.page === total;
 
-async function fetchEvolutionChain(url) {
-  try { return await apiFetch(url); }
-  catch(e) { return null; }
-}
-
-/* ──────────────────────────────────────────
-   MODAL
-   ────────────────────────────────────────── */
-async function openModal(id) {
-  modalOverlay.hidden = false;
-  document.body.style.overflow = 'hidden';
-  modalContent.innerHTML = '<div class="spinner"></div>';
-
-  const [poke, species] = await Promise.all([fetchPokemon(id), fetchSpecies(id)]);
-  if (!poke) { modalContent.innerHTML = '<p>Error al cargar.</p>'; return; }
-
-  const mainType = poke.types[0].type.name;
-  const color = TYPE_COLORS[mainType] ?? '#555';
-
-  /* evolution chain */
-  let evoHtml = '';
-  if (species?.evolution_chain?.url) {
-    const chain = await fetchEvolutionChain(species.evolution_chain.url);
-    if (chain) evoHtml = await buildEvoChain(chain.chain);
-  }
-
-  /* flavor text (Spanish or English) */
-  let flavor = '';
-  if (species) {
-    const esEntry = species.flavor_text_entries.find(e => e.language.name === 'es');
-    const enEntry = species.flavor_text_entries.find(e => e.language.name === 'en');
-    const raw = (esEntry || enEntry)?.flavor_text ?? '';
-    flavor = raw.replace(/\f|\n/g, ' ');
-  }
-
-  const mainImg = poke.sprites.other['official-artwork']?.front_default
-    || poke.sprites.front_default || '';
-
-  const typeBadges = poke.types
-    .map(t => `<span class="type-badge type-${t.type.name}">${t.type.name}</span>`)
-    .join('');
-
-  const statBars = poke.stats.map(s => {
-    const pct = Math.min(100, Math.round(s.base_stat / 255 * 100));
-    const col = statColor(s.base_stat);
-    return `
-      <div class="stat-row">
-        <span class="stat-label">${statLabel(s.stat.name)}</span>
-        <span class="stat-val">${s.base_stat}</span>
-        <div class="stat-bar"><div class="stat-fill" style="width:${pct}%;background:${col}"></div></div>
-      </div>`;
-  }).join('');
-
-  const abilities = poke.abilities.map(a => `
-    <span class="ability-badge ${a.is_hidden ? 'hidden-ability' : ''}">
-      ${a.ability.name.replace('-',' ')}${a.is_hidden ? ' ✦' : ''}
-    </span>`).join('');
-
-  const height = (poke.height / 10).toFixed(1);
-  const weight = (poke.weight / 10).toFixed(1);
-  const totalStats = poke.stats.reduce((s, st) => s + st.base_stat, 0);
-
-  /* category from species */
-  const catEntry = species?.genera?.find(g => g.language.name === 'es') ||
-                   species?.genera?.find(g => g.language.name === 'en');
-  const category = catEntry?.genus ?? '—';
-
-  modalContent.innerHTML = `
-    <div class="modal-tabs">
-      <button class="tab-btn active" data-tab="info">Info</button>
-      <button class="tab-btn" data-tab="stats">Stats</button>
-      <button class="tab-btn" data-tab="evo">Evolución</button>
-    </div>
-
-    <!-- hero -->
-    <div class="modal-hero">
-      <div class="modal-hero-bg" style="background:linear-gradient(135deg,${color}33,${color}11)">
-        <span class="modal-num">#${String(poke.id).padStart(4,'0')}</span>
-        <img class="modal-img" src="${mainImg}" alt="${poke.name}" />
-        <h2 class="modal-name">${poke.name}</h2>
-        <div class="modal-types">${typeBadges}</div>
-      </div>
-    </div>
-
-    <!-- INFO tab -->
-    <div class="tab-panel active" id="tab-info">
-      ${flavor ? `<div class="modal-section"><p style="font-size:.88rem;color:var(--text-muted);line-height:1.6">${flavor}</p></div>` : ''}
-      <div class="modal-section">
-        <h3>Datos</h3>
-        <div class="info-grid">
-          <div class="info-item"><label>Altura</label><span>${height} m</span></div>
-          <div class="info-item"><label>Peso</label><span>${weight} kg</span></div>
-          <div class="info-item"><label>Categoría</label><span>${category}</span></div>
-          <div class="info-item"><label>Exp. base</label><span>${poke.base_experience ?? '—'}</span></div>
-        </div>
-      </div>
-      <div class="modal-section">
-        <h3>Habilidades</h3>
-        <div class="abilities">${abilities}</div>
-      </div>
-    </div>
-
-    <!-- STATS tab -->
-    <div class="tab-panel" id="tab-stats">
-      <div class="modal-section">
-        <h3>Estadísticas base · Total: ${totalStats}</h3>
-        ${statBars}
-      </div>
-    </div>
-
-    <!-- EVO tab -->
-    <div class="tab-panel" id="tab-evo">
-      <div class="modal-section">
-        <h3>Cadena evolutiva</h3>
-        <div class="evo-chain">${evoHtml || '<p style="color:var(--text-muted);font-size:.85rem">Sin cadena evolutiva.</p>'}</div>
-      </div>
-    </div>
-  `;
-
-  /* Tab switching */
-  modalContent.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      modalContent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      modalContent.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      modalContent.querySelector(`#tab-${btn.dataset.tab}`).classList.add('active');
-    });
-  });
-
-  /* Evo item clicks */
-  modalContent.querySelectorAll('.evo-item[data-id]').forEach(el => {
-    el.addEventListener('click', () => openModal(Number(el.dataset.id)));
-  });
-}
-
-function closeModal() {
-  modalOverlay.hidden = true;
-  document.body.style.overflow = '';
-}
-
-modalClose.addEventListener('click', closeModal);
-modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-
-/* ──────────────────────────────────────────
-   EVOLUTION CHAIN
-   ────────────────────────────────────────── */
-async function buildEvoChain(node) {
-  const parts = [];
-
-  async function walk(n) {
-    const id = extractId(n.species.url);
-    const img = await getPokemonSprite(id);
-    parts.push(`
-      <div class="evo-item" data-id="${id}">
-        <img src="${img}" alt="${n.species.name}" />
-        <span>${n.species.name}</span>
-      </div>`);
-
-    if (n.evolves_to?.length) {
-      parts.push('<span class="evo-arrow">→</span>');
-      await walk(n.evolves_to[0]);
+  /* build page number list with ellipsis */
+  const pages = [];
+  for (let i = 1; i <= total; i++) {
+    if (i === 1 || i === total || Math.abs(i - S.page) <= 2) {
+      pages.push(i);
+    } else if (pages[pages.length - 1] !== '…') {
+      pages.push('…');
     }
   }
 
-  await walk(node);
-  return parts.join('');
+  pn.innerHTML = pages.map(p =>
+    p === '…'
+      ? '<span class="page-ellipsis" aria-hidden="true">…</span>'
+      : `<button class="page-num${p === S.page ? ' page-num--active' : ''}" data-p="${p}" aria-label="Página ${p}"${p === S.page ? ' aria-current="page"' : ''}>${p}</button>`
+  ).join('');
+
+  pn.querySelectorAll('.page-num').forEach(btn =>
+    btn.addEventListener('click', () => {
+      S.page = +btn.dataset.p;
+      renderGrid();
+      scrollToMain();
+    })
+  );
 }
 
-async function getPokemonSprite(id) {
+function scrollToMain() {
+  $('main-content').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* ── Type pills ───────────────────────────────────────────── */
+function renderTypePills() {
+  const wrap = $('type-pills');
+  ALL_TYPES.forEach(t => {
+    const btn = el('button', 'pill');
+    btn.dataset.type = t;
+    btn.innerHTML = `<span class="pill-dot" style="background:${TYPE_CSS_COLOR[t]}"></span>${cap(t)}`;
+    btn.addEventListener('click', () => selectType(t));
+    wrap.appendChild(btn);
+  });
+}
+
+async function selectType(type) {
+  /* update pill UI */
+  document.querySelectorAll('.pill').forEach(p =>
+    p.classList.toggle('pill--active', p.dataset.type === type)
+  );
+
+  S.type = type;
+
+  /* wait for typeMap if filtering by type */
+  if (type !== 'all' && !S.typeMapReady) {
+    $('type-loading').hidden  = false;
+    $('type-pills').style.opacity = '.5';
+    await ensureTypeMap();
+    $('type-loading').hidden  = true;
+    $('type-pills').style.opacity = '';
+  }
+
+  S.page = 1;
+  applyFilters();
+}
+
+/* ── Modal ────────────────────────────────────────────────── */
+async function openModal(id) {
+  S.modalId    = id;
+  S.modalShiny = false;
+
+  const overlay = $('modal-overlay');
+  const body    = $('modal-body');
+
+  overlay.hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  /* loading state */
+  body.innerHTML = `<div class="modal-loading"><div class="pb-spin"></div><p>Cargando…</p></div>`;
+
   try {
-    const p = await fetchPokemon(id);
-    return p?.sprites?.front_default ?? '';
-  } catch { return ''; }
+    const [poke, species] = await Promise.all([
+      api(`${API}/pokemon/${id}`),
+      api(`${API}/pokemon-species/${id}`).catch(() => null),
+    ]);
+    renderModalContent(poke, species);
+  } catch {
+    body.innerHTML = `
+      <div class="modal-error">
+        <p>No se pudo cargar este Pokémon.</p>
+        <button onclick="openModal(${id})">Reintentar</button>
+      </div>`;
+  }
+}
+
+function renderModalContent(poke, species) {
+  const id        = poke.id;
+  const name      = cap(poke.name);
+  const mainType  = poke.types[0].type.name;
+  const color     = TYPE_CSS_COLOR[mainType] || '#555';
+
+  /* navigation within current filtered list */
+  const idx    = S.filtered.findIndex(p => p.id === id);
+  const prevId = idx > 0 ? S.filtered[idx - 1].id : null;
+  const nextId = idx < S.filtered.length - 1 ? S.filtered[idx + 1].id : null;
+  updateNavButtons(prevId, nextId);
+
+  /* text helpers */
+  const typeBadges  = poke.types.map(t => `<span class="badge badge--${t.type.name}">${t.type.name}</span>`).join('');
+  const flavorEntry = species?.flavor_text_entries?.find(e => e.language.name === 'es')
+                   || species?.flavor_text_entries?.find(e => e.language.name === 'en');
+  const flavor      = cleanText(flavorEntry?.flavor_text || '');
+  const height      = (poke.height  / 10).toFixed(1) + ' m';
+  const weight      = (poke.weight  / 10).toFixed(1) + ' kg';
+  const catchRate   = species?.capture_rate ?? '—';
+  const growthRate  = cap((species?.growth_rate?.name || '').replace(/-/g, ' ')) || '—';
+  const eggGroups   = (species?.egg_groups || []).map(g => cap(g.name)).join(', ') || '—';
+  const genName     = species?.generation?.name?.replace('generation-', 'Gen ').toUpperCase() || '—';
+  const category    = (species?.genera?.find(g => g.language.name === 'es')
+                    || species?.genera?.find(g => g.language.name === 'en'))?.genus || '—';
+  const totalStats  = poke.stats.reduce((s, st) => s + st.base_stat, 0);
+
+  /* color for gradient */
+  const ca = hexWithAlpha(color, '.30');
+  const cb = hexWithAlpha(color, '.06');
+
+  /* abilities */
+  const abilityHtml = poke.abilities.map(a => `
+    <span class="ability-chip ${a.is_hidden ? 'ability-chip--hidden' : ''}">
+      ${cap(a.ability.name.replace(/-/g, ' '))}
+      ${a.is_hidden ? '<em>Oculta</em>' : ''}
+    </span>`).join('');
+
+  /* stat rows */
+  const statHtml = poke.stats.map(s => {
+    const pct   = Math.min(100, Math.round(s.base_stat / 255 * 100));
+    const color2 = statColor(s.base_stat);
+    return `<div class="stat-row">
+      <span class="stat-label">${STAT_LABEL[s.stat.name] || s.stat.name}</span>
+      <span class="stat-val">${s.base_stat}</span>
+      <div class="stat-track"><div class="stat-bar" data-w="${pct}" style="background:${color2}"></div></div>
+    </div>`;
+  }).join('');
+
+  $('modal-body').innerHTML = `
+    <!-- Hero -->
+    <div class="modal-hero" style="--modal-color-a:${ca};--modal-color-b:${cb}">
+      <span class="modal-hero-num">#${pad(id)} · ${genName}</span>
+      <button class="shiny-btn" id="shiny-btn" aria-label="Alternar sprite shiny" aria-pressed="false">✦ Shiny</button>
+      <img class="modal-art" id="modal-art"
+           src="${ART(id)}" alt="${name}"
+           width="168" height="168"
+           onerror="this.src='${SPR(id)}'" />
+      <h2 class="modal-name" id="modal-pokemon-name">${name}</h2>
+      <div class="modal-types">${typeBadges}</div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="modal-tabs">
+      <button class="tab active" data-tab="about">Acerca de</button>
+      <button class="tab" data-tab="stats">Estadísticas</button>
+      <button class="tab" data-tab="evo">Evolución</button>
+    </div>
+
+    <div class="tab-content">
+      <!-- About -->
+      <section class="tab-pane active" id="tab-about">
+        ${flavor ? `<p class="flavor-text">"${flavor}"</p>` : ''}
+        <div class="info-grid">
+          <div class="info-cell"><label>Altura</label><strong>${height}</strong></div>
+          <div class="info-cell"><label>Peso</label><strong>${weight}</strong></div>
+          <div class="info-cell"><label>Categoría</label><strong>${category}</strong></div>
+          <div class="info-cell"><label>Generación</label><strong>${genName}</strong></div>
+          <div class="info-cell"><label>Tasa captura</label><strong>${catchRate}</strong></div>
+          <div class="info-cell"><label>Crecimiento</label><strong>${growthRate}</strong></div>
+          <div class="info-cell"><label>Grupos huevo</label><strong>${eggGroups}</strong></div>
+          <div class="info-cell"><label>Exp. base</label><strong>${poke.base_experience ?? '—'}</strong></div>
+        </div>
+        <p class="section-title">Habilidades</p>
+        <div class="ability-list">${abilityHtml}</div>
+      </section>
+
+      <!-- Stats -->
+      <section class="tab-pane" id="tab-stats">
+        <div class="stats-list">
+          ${statHtml}
+          <div class="stat-row stat-row--total">
+            <span class="stat-label">Total</span>
+            <span class="stat-val">${totalStats}</span>
+            <div class="stat-track"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Evo -->
+      <section class="tab-pane" id="tab-evo">
+        <div id="evo-wrap">
+          <div class="modal-loading" style="padding:2rem 0"><div class="pb-spin"></div></div>
+        </div>
+      </section>
+    </div>`;
+
+  /* wire tabs */
+  $('modal-body').querySelectorAll('.tab').forEach(btn =>
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab))
+  );
+
+  /* shiny toggle */
+  $('shiny-btn').addEventListener('click', toggleShiny);
+
+  /* load evo chain */
+  if (species?.evolution_chain?.url) {
+    api(species.evolution_chain.url)
+      .then(d => renderEvoSection(d.chain, id))
+      .catch(() => {
+        const w = $('evo-wrap');
+        if (w) w.innerHTML = '<p class="text-muted">No se pudo cargar la cadena evolutiva.</p>';
+      });
+  } else {
+    const w = $('evo-wrap');
+    if (w) w.innerHTML = '<p class="text-muted">Sin cadena evolutiva registrada.</p>';
+  }
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab, .tab-pane').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
+  const pane = $(`tab-${tabId}`);
+  if (pane) {
+    pane.classList.add('active');
+    if (tabId === 'stats') animateStats();
+  }
+}
+
+function toggleShiny() {
+  S.modalShiny = !S.modalShiny;
+  const img = $('modal-art');
+  const btn = $('shiny-btn');
+  if (!img || !btn) return;
+  img.classList.add('loading');
+  const newSrc = S.modalShiny ? SHINY(S.modalId) : ART(S.modalId);
+  img.onload  = () => img.classList.remove('loading');
+  img.onerror = () => { img.src = SPR(S.modalId); img.classList.remove('loading'); };
+  img.src = newSrc;
+  btn.classList.toggle('shiny-btn--on', S.modalShiny);
+  btn.setAttribute('aria-pressed', String(S.modalShiny));
+}
+
+function updateNavButtons(prevId, nextId) {
+  const prev = $('modal-prev');
+  const next = $('modal-next');
+  prev.disabled = !prevId;
+  next.disabled = !nextId;
+  prev.onclick = prevId ? () => openModal(prevId) : null;
+  next.onclick = nextId ? () => openModal(nextId) : null;
+}
+
+/* animate stat bars (double rAF to trigger CSS transition after paint) */
+function animateStats() {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() =>
+      document.querySelectorAll('.stat-bar[data-w]').forEach(b => {
+        b.style.width = b.dataset.w + '%';
+      })
+    )
+  );
+}
+
+function closeModal() {
+  $('modal-overlay').hidden = true;
+  document.body.style.overflow = '';
+  S.modalId = null;
+}
+
+/* ── Evolution chain ──────────────────────────────────────── */
+function renderEvoSection(chain, currentId) {
+  const wrap = $('evo-wrap');
+  if (!wrap) return;
+
+  /* Build depth groups: depths[0] = [base], depths[1] = [stage1a, stage1b], … */
+  const depths = [];
+  function walk(node, depth = 0) {
+    if (!depths[depth]) depths[depth] = [];
+    depths[depth].push({
+      id:      extractId(node.species.url),
+      name:    node.species.name,
+      trigger: evoTrigger(node.evolution_details),
+    });
+    (node.evolves_to || []).forEach(c => walk(c, depth + 1));
+  }
+  walk(chain);
+
+  /* single pokemon, no evolutions */
+  if (depths.length === 1) {
+    wrap.innerHTML = '<p class="text-muted">Este Pokémon no evoluciona.</p>';
+    return;
+  }
+
+  /* build HTML */
+  let html = '<div class="evo-chain">';
+  depths.forEach((group, di) => {
+    if (di > 0) {
+      html += `<div class="evo-sep">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+      </div>`;
+    }
+    /* single-item group: put trigger on the separator arrow above */
+    const singleTrigger = group.length === 1 && group[0].trigger;
+    if (singleTrigger && di > 0) {
+      /* patch the last separator to include the trigger */
+      html = html.replace(/<\/div>\s*$/, `<span class="evo-trigger">${singleTrigger}</span></div>`);
+    }
+    html += '<div class="evo-group">';
+    group.forEach(p => {
+      const active = p.id === currentId ? ' evo-card--active' : '';
+      const noEvo  = depths.length === 1 ? ' evo-card--no-evo' : '';
+      /* For branching evolutions, show each card's trigger below its name */
+      const triggerHtml = group.length > 1 && p.trigger
+        ? `<small class="evo-card-trigger">${p.trigger}</small>` : '';
+      html += `<div class="evo-card${active}${noEvo}" data-id="${p.id}" role="button" tabindex="0" aria-label="Ver ${cap(p.name)}">
+        <img src="${SPR(p.id)}" alt="${cap(p.name)}" width="68" height="68" loading="lazy" onerror="this.style.opacity='.3'" />
+        <span>${cap(p.name)}</span>
+        ${triggerHtml}
+      </div>`;
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  wrap.innerHTML = html;
+
+  /* click handlers */
+  wrap.querySelectorAll('.evo-card[data-id]').forEach(card => {
+    const navigate = () => {
+      const evoId = Number(card.dataset.id);
+      if (evoId !== currentId) openModal(evoId);
+    };
+    card.addEventListener('click', navigate);
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(); }
+    });
+  });
+}
+
+function evoTrigger(details) {
+  if (!details || !details.length) return '';
+  const d = details[0];
+  if (d.trigger?.name === 'trade') return 'Intercambio';
+  if (d.min_level)   return `Nv. ${d.min_level}`;
+  if (d.item)        return cap(d.item.name.replace(/-/g, ' '));
+  if (d.held_item)   return cap(d.held_item.name.replace(/-/g, ' '));
+  if (d.known_move)  return cap(d.known_move.name.replace(/-/g, ' '));
+  if (d.location)    return 'Lugar especial';
+  if (d.min_happiness) return 'Amistad';
+  if (d.min_beauty)    return 'Belleza';
+  if (d.time_of_day === 'day')   return 'De día';
+  if (d.time_of_day === 'night') return 'De noche';
+  return 'Evolución';
+}
+
+/* ── Utilities ────────────────────────────────────────────── */
+const cap  = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+const pad  = id => String(id).padStart(4, '0');
+
+function cleanText(s) {
+  return s
+    .replace(/[\f\n\r­]/g, ' ')
+    .replace(/’/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function statColor(v) {
+  if (v >= 130) return '#22c55e';
+  if (v >= 100) return '#84cc16';
+  if (v >= 70)  return '#eab308';
+  if (v >= 50)  return '#f97316';
+  return '#ef4444';
+}
+
+function hexWithAlpha(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function extractId(url) {
   return Number(url.replace(/\/$/, '').split('/').pop());
 }
 
-/* ──────────────────────────────────────────
-   UTILITIES
-   ────────────────────────────────────────── */
-function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-
-function statLabel(name) {
-  const map = { hp:'HP', attack:'Ataque', defense:'Defensa',
-    'special-attack':'Sp. Ataque', 'special-defense':'Sp. Defensa', speed:'Velocidad' };
-  return map[name] ?? name;
+function setLoader(show) {
+  $('loader').hidden = !show;
+  if (show) $('pokemon-grid').innerHTML = '';
 }
 
-function statColor(val) {
-  if (val >= 150) return '#22c55e';
-  if (val >= 100) return '#84cc16';
-  if (val >= 70)  return '#eab308';
-  if (val >= 50)  return '#f97316';
-  return '#ef4444';
-}
-
-function showLoader(show) {
-  loader.hidden = !show;
-  if (show) { grid.innerHTML = ''; pagination.hidden = true; }
-}
-
-/* ──────────────────────────────────────────
-   EVENT LISTENERS
-   ────────────────────────────────────────── */
+/* ── Event listeners ──────────────────────────────────────── */
 
 /* Search */
 let searchTimer;
-searchInput.addEventListener('input', () => {
+$('search-input').addEventListener('input', e => {
   clearTimeout(searchTimer);
-  state.search = searchInput.value.trim();
-  searchClear.classList.toggle('visible', state.search.length > 0);
-  searchTimer = setTimeout(applyFilters, 350);
+  S.search = e.target.value;
+  $('search-clear').hidden = !S.search;
+  searchTimer = setTimeout(applyFilters, 280);
 });
-searchClear.addEventListener('click', () => {
-  searchInput.value = '';
-  state.search = '';
-  searchClear.classList.remove('visible');
+
+$('search-clear').addEventListener('click', () => {
+  $('search-input').value = '';
+  S.search = '';
+  $('search-clear').hidden = true;
   applyFilters();
 });
 
-/* Type pills */
-function selectType(type) {
-  state.type = type;
-  typePills.querySelectorAll('.pill').forEach(p => {
-    p.classList.toggle('active', p.dataset.type === type);
-  });
-  state.page = 1;
-  applyFilters();
-}
-typePills.querySelector('[data-type="all"]').addEventListener('click', () => selectType('all'));
+/* Filters */
+$('gen-select').addEventListener('change', e => { S.gen = e.target.value; S.page = 1; applyFilters(); });
+$('sort-select').addEventListener('change', e => { S.sort = e.target.value; S.page = 1; applyFilters(); });
 
-/* Gen */
-genSelect.addEventListener('change', () => {
-  state.gen = genSelect.value;
+/* Type pill "All" */
+$('type-pills').querySelector('[data-type="all"]').addEventListener('click', () => {
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('pill--active'));
+  $('type-pills').querySelector('[data-type="all"]').classList.add('pill--active');
+  S.type = 'all';
+  S.page = 1;
   applyFilters();
-});
-
-/* Sort */
-sortSelect.addEventListener('change', () => {
-  state.sort = sortSelect.value;
-  renderPage();
 });
 
 /* Pagination */
-prevBtn.addEventListener('click', () => { state.page--; renderPage(); });
-nextBtn.addEventListener('click', () => { state.page++; renderPage(); });
+$('prev-btn').addEventListener('click', () => { S.page--; renderGrid(); scrollToMain(); });
+$('next-btn').addEventListener('click', () => { S.page++; renderGrid(); scrollToMain(); });
 
-/* ── Boot ── */
+/* Filter toggle */
+$('filter-toggle').addEventListener('click', () => {
+  const open = $('filter-bar').classList.toggle('open');
+  $('filter-toggle').classList.toggle('active', open);
+  $('filter-toggle').setAttribute('aria-expanded', String(open));
+});
+
+/* Modal close */
+$('modal-close').addEventListener('click', closeModal);
+$('modal-overlay').addEventListener('click', e => {
+  if (e.target === $('modal-overlay')) closeModal();
+});
+
+/* Keyboard */
+document.addEventListener('keydown', e => {
+  const overlay = $('modal-overlay');
+  if (overlay.hidden) return;
+  if (e.key === 'Escape')      { closeModal(); return; }
+  if (e.key === 'ArrowLeft')   { $('modal-prev').click(); }
+  if (e.key === 'ArrowRight')  { $('modal-next').click(); }
+});
+
+/* Clear-all-filters button in empty state */
+$('clear-filters').addEventListener('click', () => {
+  S.search = ''; S.type = 'all'; S.gen = 'all'; S.sort = 'id'; S.page = 1;
+  $('search-input').value = '';
+  $('search-clear').hidden = true;
+  $('gen-select').value  = 'all';
+  $('sort-select').value = 'id';
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('pill--active'));
+  $('type-pills').querySelector('[data-type="all"]').classList.add('pill--active');
+  applyFilters();
+});
+
+/* ── Boot ─────────────────────────────────────────────────── */
 init();
